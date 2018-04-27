@@ -1,0 +1,199 @@
+<project xmlns:unless="ant:unless" name="module" default="clean" basedir=".">
+
+	<!-- 
+       internal tasks and macros
+    -->
+
+	<loadproperties srcFile="sdk.properties" />
+	<property file="${user.home}/apiomat/apiomat.properties"/>
+	<!-- set global properties for this build -->
+	<property name="src" location="src" />
+	<property name="lib" location="lib" />
+	<property name="build" location="build" />
+	<property name="dist" location="dist" />
+
+	<path id="classpath">
+		<fileset dir="${lib}/">
+			<include name="**/*.jar" />
+		</fileset>
+	</path>
+
+	<taskdef name="post-file" classname="com.apiomat.script.ant.DeployNMTask" classpathref="classpath" />
+	<taskdef name="set-released" classname="com.apiomat.script.ant.ReleaseNMTask" classpathref="classpath" />
+	<taskdef name="update-nm" classname="com.apiomat.script.ant.UpdateNMTask" classpathref="classpath" />
+
+	<condition property="isWindows">
+		<os family="windows" />
+	</condition>
+
+	<condition property="isUnix">
+		<or>
+			<os family="unix" />
+			<os family="mac" />
+		</or>
+	</condition>
+
+	<condition property="isNewAnt">
+		<antversion atleast="1.9.1" />
+	</condition>
+
+	<condition property="isOldAnt">
+		<not>
+			<antversion atleast="1.9.1" />
+		</not>
+	</condition>
+
+	<target name="init" depends="clean">
+		<tstamp />
+		<mkdir dir="${build}" />
+		<mkdir dir="${dist}" />
+		<mkdir dir="${src}" />
+	</target>
+	
+	<!-- 
+       public tasks and macros
+    -->
+
+	<target name="downloadNativeModule" description="Download the NativeModule">
+		<condition property="system.set" value="usedSystem=${system}&amp;" else="">
+			<isset property="system" />
+		</condition>
+
+		<condition property="merge.set" value="${merge}" else="true">
+			<isset property="merge" />
+		</condition>
+
+		<condition property="eclipse.set" value="${eclipse}" else="true">
+			<isset property="eclipse" />
+		</condition>
+
+		<condition property="overwriteHooks.set" value="${overwriteHooks}" else="false">
+			<isset property="overwriteHooks" />
+		</condition>
+
+		<get dest="./nm.zip" src="${host}/yambas/rest/modules/${moduleName}/sdk?${system.set}merge=${merge.set}&amp;eclipse=${eclipse.set}" username="${customerEmail}" password="${password}" />
+		<mkdir dir="./tmp" />
+
+		<copy tofile="./tmp/sdk.properties" file="sdk.properties" overwrite="true" />
+		<copy tofile="./tmp/readme.md" file="readme.md" overwrite="true" />
+		<copy tofile="./tmp/.gitignore" file=".gitignore" failOnError="false" />
+		<copy todir="./tmp" overwrite="true">
+			<fileset dir="${src}">
+				<include name="**/*Hooks.java" />
+				<include name="**/*HooksNonTransient.java" />
+				<include name="**/*HooksTransient.java" />
+				<include name="**/RestClass.java" />
+				<exclude name="**/IModelHooks.java" />
+			</fileset>
+		</copy>
+		<unzip dest="." src="./nm.zip" overwrite="true" />
+		<copy file="./tmp/sdk.properties" tofile="sdk.properties" overwrite="true" />
+		<copy file="./tmp/readme.md" tofile="readme.md" overwrite="true" />
+		<copy file="./tmp/.gitignore" tofile=".gitignore" overwrite="true" failOnError="false"/>
+		<copy todir="${src}" overwrite="true">
+			<fileset dir="./tmp">
+				<include name="**/RestClass.java" />
+			</fileset>
+		</copy>
+		
+		<copy todir="${src}" overwrite="true" unless:true="${overwriteHooks.set}">
+			<fileset dir="./tmp">
+				<include name="**/*Hooks.java" />
+				<include name="**/*HooksNonTransient.java" />
+				<include name="**/*HooksTransient.java" />
+			</fileset>
+		</copy>
+		
+		<delete file="./nm.zip" />
+		<delete dir="./tmp" />
+	</target>
+		
+	<target name="package" depends="compile" description="Package the NativeModule as JAR">
+		<antcall target="_packageAntOld" />
+		<antcall target="_packageAntNew" />
+	</target>
+
+	<target name="_packageAntOld" if="isOldAnt">
+		<jar destfile="${dist}/${moduleName}.jar" duplicate="preserve">
+			<fileset dir="${lib}" />
+			<fileset dir="${build}">
+				<include name="**/*.class" />
+			</fileset>
+			<zipfileset dir="${src}" prefix="src">
+				<include name="**/*.java" />
+				<include name="**/META-INF/**" />
+			</zipfileset>
+			<fileset dir="${src}">
+				<include name="**/*.png" />
+				<include name="**/*.svg" />
+				<include name="**/META-INF/**" />
+			</fileset>
+			<fileset dir="">
+				<include name="pom.xml" />
+			</fileset>
+		</jar>
+	</target>
+
+	<target name="_packageAntNew" if="isNewAnt">
+		<jar destfile="${dist}/${moduleName}.jar" duplicate="preserve" zip64mode="always">
+			<fileset dir="${lib}" />
+			<fileset dir="${build}">
+				<include name="**/*.class" />
+			</fileset>
+			<zipfileset dir="${src}" prefix="src">
+				<include name="**/*.java" />
+				<include name="**/META-INF/**" />
+			</zipfileset>
+			<fileset dir="${src}">
+				<include name="**/*.png" />
+				<include name="**/*.svg" />
+				<include name="**/META-INF/**" />
+			</fileset>
+			<fileset dir="">
+				<include name="pom.xml" />
+			</fileset>
+		</jar>
+	</target>
+
+	<target name="uploadNativeModule" depends="package" description="Upload the NativeModule">
+		<post-file file="${dist}/${moduleName}.jar" url="${host}/yambas/rest/modules/${moduleName}/sdk" update="${update}" system="${system}" username="${customerEmail}" password="${password}" />
+		<delete file="${dist}/${moduleName}.jar" />
+		<antcall target="downloadNativeModule" />
+	</target>
+
+	<target name="updateAfterDatamodelChange" description="Downloads the NativeModule with the latest models and updates on server afterwards">
+		<antcall target="downloadNativeModule" />
+		<antcall target="uploadNativeModule" />
+	</target>
+	<target name="updateVersion" description="Updates the NativeModule from and to the ApiOmat version specified in your sdk.properties">
+		<update-nm fromVersion="${fromVersion}" toVersion="${toVersion}" />
+	</target>
+	<target name="_releaseWin" if="isWindows">
+		<set-released releaseState='{&quot;releaseState&quot;:&quot;RELEASED&quot;}' url="${host}/yambas/rest/modules/${moduleName}" system="${system}" username="${customerEmail}" password="${password}" />
+	</target>
+
+	<target name="_releaseUnix" if="isUnix">
+		<set-released releaseState='{"releaseState":"RELEASED"}' url="${host}/yambas/rest/modules/${moduleName}" system="${system}" username="${customerEmail}" password="${password}" />
+	</target>
+
+	<target name="release" description="Sets the NativeModule released" depends="_releaseWin, _releaseUnix" />
+
+	<target name="_unreleaseWin" if="isWindows">
+		<set-released releaseState='{&quot;releaseState&quot;:&quot;UNRELEASED&quot;}' url="${host}/yambas/rest/modules/${moduleName}" system="${system}" username="${customerEmail}" password="${password}" />
+	</target>
+
+	<target name="_unreleaseUnix" if="isUnix">
+		<set-released releaseState='{"releaseState":"UNRELEASED"}' url="${host}/yambas/rest/modules/${moduleName}" system="${system}" username="${customerEmail}" password="${password}" />
+	</target>
+
+	<target name="unrelease" description="Sets the NativeModule unreleased" depends="_unreleaseWin, _unreleaseUnix" />
+
+	<target name="compile" depends="init" description="Compile the source">
+		<javac includeantruntime="false" srcdir="${src}" destdir="${build}" classpathref="classpath" debug="true" encoding="UTF-8" />
+	</target>
+
+	<target name="clean" description="Clean up">
+		<delete dir="${build}" />
+		<delete dir="${dist}" />
+	</target>
+</project>
