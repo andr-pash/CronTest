@@ -53,6 +53,7 @@ public class Cpu extends com.apiomat.nativemodule.AbstractClientDataModel<com.ap
     public static final String MODEL_NAME = "Cpu";
 
     /** class specific attributes */
+    private Double load = null;
     /**
      * Protected constructor; to create a new instance, use the createObject() method
      */
@@ -75,6 +76,16 @@ public class Cpu extends com.apiomat.nativemodule.AbstractClientDataModel<com.ap
     public String getModelName( )
     {
         return MODEL_NAME;
+    }
+
+    public Double getLoad()
+    {
+         return this.load;
+    }
+
+    public void setLoad( Double arg )
+    {
+        this.load = arg;
     }
 
 }
